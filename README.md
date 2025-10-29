@@ -2,17 +2,6 @@
 
 A full-stack web application for exploring countries worldwide with real-time data synchronization and interactive mapping capabilities.
 
-## Table of Contents
-
-- [Project Overview](#project-overview)
-- [Architecture](#architecture)
-- [Tech Stack](#tech-stack)
-- [Setup Instructions](#setup-instructions)
-- [Deployment](#deployment)
-- [API Documentation](#api-documentation)
-- [Environment Variables](#environment-variables)
-- [Assumptions and Trade-offs](#assumptions-and-trade-offs)
-- [Time Breakdown](#time-breakdown)
 
 ## Project Overview
 
