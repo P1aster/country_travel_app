@@ -1,10 +1,20 @@
-import { Module } from '@nestjs/common';
+import { Module, ValidationPipe } from '@nestjs/common';
+import { ScheduleModule } from '@nestjs/schedule';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-
+import config from '@/config/app.config';
+import database from '@/config/db.config';
+import { CountryModule } from '@/models/country/country.module';
+import { APP_PIPE } from '@nestjs/core';
 @Module({
-  imports: [],
+  imports: [ScheduleModule.forRoot(), config, database, CountryModule],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_PIPE,
+      useClass: ValidationPipe,
+    },
+  ],
 })
 export class AppModule {}

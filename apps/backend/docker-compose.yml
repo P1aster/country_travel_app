@@ -1,0 +1,50 @@
+services:
+  database:
+    image: pgvector/pgvector:pg16
+    container_name: country_travel_db
+    restart: unless-stopped
+    ports:
+      - '${POSTGRES_PORT:-5432}:5432'
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-country_travel}
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    volumes:
+      - postgres_data_dev:/var/lib/postgresql/data
+    networks:
+      - app-network-dev
+
+  backend:
+    build:
+      context: ../..
+      dockerfile: apps/backend/Dockerfile.dev
+    container_name: country_travel_backend
+    restart: unless-stopped
+    depends_on:
+      database:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      POSTGRES_HOST: database
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-country_travel}
+      PORT: 8080
+    ports:
+      - '${PORT:-8080}:8080'
+    networks:
+      - app-network-dev
+
+volumes:
+  postgres_data_dev:
+
+networks:
+  app-network-dev:
+    driver: bridge
