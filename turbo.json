@@ -15,8 +15,7 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true,
-      "inputs": ["$TURBO_DEFAULT$", ".env*"]
+      "persistent": true
     }
   }
 }
