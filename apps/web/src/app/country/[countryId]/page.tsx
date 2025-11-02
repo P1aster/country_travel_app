@@ -4,6 +4,7 @@ import { HydrationBoundary, dehydrate } from "@tanstack/react-query";
 import { Suspense } from "react";
 import { getQueryClient } from "@/lib/get-query-client";
 import { countryOptions } from "@/lib/getCoutry";
+import { ErrorBoundary } from "@/components/error/ErrorBoundary";
 
 interface CountryPageProps {
   params: Promise<{
@@ -18,9 +19,14 @@ export default async function CountryPage({ params }: CountryPageProps) {
 
   return (
     <HydrationBoundary state={dehydrate(queryClient)}>
-      <Suspense fallback={<LoadingScreen />}>
-        <CountryScreen countryId={countryId} />
-      </Suspense>
+      <ErrorBoundary
+        fallbackTitle="Failed to load country details"
+        fallbackDescription="We couldn't load the country information. Please try again."
+      >
+        <Suspense fallback={<LoadingScreen />}>
+          <CountryScreen countryId={countryId} />
+        </Suspense>
+      </ErrorBoundary>
     </HydrationBoundary>
   );
 }
