@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Post } from '@nestjs/common';
+import { Controller, Get, Param } from '@nestjs/common';
 import { CountryService } from './country.service';
 
 @Controller('country')
@@ -13,10 +13,5 @@ export class CountryController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.countryService.findOne(id);
-  }
-
-  @Post('sync')
-  manualSync() {
-    return this.countryService.manualSync();
   }
 }
