@@ -1,34 +1,27 @@
-
-import type { Country, CountrySyncResponse } from "@/types";
-const BACKEND_API_URL = "http://localhost:8080";
+import type {
+  CountryBasic,
+  CountryDetailed,
+  CountrySyncResponse,
+} from "@/types";
+import { axiosInstance } from "@/api/axios-instance";
 
 export class CountryService {
-  static async getAllCountries(): Promise<Country[]> {
+  static async getAllCountries(): Promise<CountryBasic[]> {
     try {
-      const response = await fetch(`${BACKEND_API_URL}/api/country`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch countries: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data;
+      const response = await axiosInstance.get<CountryBasic[]>("/api/country");
+      return response.data;
     } catch (error) {
       console.error("Error fetching countries from backend:", error);
       throw error;
     }
   }
 
-  static async getCountryById(id: string): Promise<Country> {
+  static async getCountryById(id: string): Promise<CountryDetailed> {
     try {
-      const response = await fetch(`${BACKEND_API_URL}/api/country/${id}`);
-
-      if (!response.ok) {
-        throw new Error(`Failed to fetch country: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data;
+      const response = await axiosInstance.get<CountryDetailed>(
+        `/api/country/${id}`,
+      );
+      return response.data;
     } catch (error) {
       console.error(`Error fetching country with ID ${id}:`, error);
       throw error;
@@ -37,16 +30,9 @@ export class CountryService {
 
   static async triggerManualSync(): Promise<CountrySyncResponse> {
     try {
-      const response = await fetch(`${BACKEND_API_URL}/api/country/sync`, {
-        method: "POST",
-      });
-
-      if (!response.ok) {
-        throw new Error(`Failed to trigger sync: ${response.statusText}`);
-      }
-
-      const data = await response.json();
-      return data;
+      const response =
+        await axiosInstance.post<CountrySyncResponse>("/api/country/sync");
+      return response.data;
     } catch (error) {
       console.error("Error triggering manual sync:", error);
       throw error;
