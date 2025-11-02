@@ -1,37 +1,50 @@
 import {
   Entity,
-  PrimaryGeneratedColumn,
   Column,
   CreateDateColumn,
   UpdateDateColumn,
+  ManyToMany,
+  JoinTable,
+  PrimaryColumn,
 } from 'typeorm';
+import { Currency } from '@/models/currencies/entities/currency.entity';
 
 @Entity('countries')
 export class Country {
-  @PrimaryGeneratedColumn('uuid')
+  @PrimaryColumn({ type: 'varchar', length: 3 })
   id: string;
 
-  @Column({ type: 'varchar', length: 255, unique: true })
+  @Column({ type: 'varchar', unique: true })
   name: string;
 
-  @Column({ type: 'varchar', length: 255, nullable: true })
-  capital: string;
+  @Column({ type: 'varchar', array: true, nullable: false })
+  capital: string[];
 
-  @Column({ type: 'varchar', length: 50, nullable: true })
+  @Column({ type: 'varchar', length: 50, nullable: false })
   flag: string;
 
-  @Column({ type: 'float', array: true, nullable: true })
+  @Column({ type: 'float', nullable: false })
+  area: number;
+
+  @Column({ type: 'varchar', array: true, nullable: false, default: [] })
+  languages: string[];
+
+  @Column({ type: 'jsonb', nullable: false })
+  maps: { googleMaps: string; openStreetMaps: string };
+
+  @Column({ type: 'varchar', array: true, nullable: false })
+  timezones: string[];
+
+  @Column({ type: 'float', array: true, nullable: false })
   latlng: number[];
-
-  @Column({ type: 'jsonb', nullable: true })
-  currencies: Record<string, any>;
-
-  @Column({ type: 'jsonb', nullable: true })
-  rawData: Record<string, any>;
 
   @CreateDateColumn()
   createdAt: Date;
 
   @UpdateDateColumn()
   updatedAt: Date;
+
+  @ManyToMany(() => Currency, (currency) => currency.countries)
+  @JoinTable()
+  currencies: Currency[];
 }

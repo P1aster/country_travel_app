@@ -1,21 +1,20 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Repository, EntityManager } from 'typeorm';
 import { Cron, CronExpression } from '@nestjs/schedule';
-import axios, { AxiosError } from 'axios';
+import { AxiosError } from 'axios';
 import { Country } from '@/models/country/entities/country.entity';
-
-interface CountryApiResponse {
-  name: {
-    common: string;
-    official: string;
-  };
-  capital?: string[];
-  flag?: string;
-  latlng?: number[];
-  currencies?: Record<string, any>;
-  [key: string]: any;
-}
+import type {
+  CountryBasic,
+  CountryDetailed,
+  CountryApiResponse,
+} from '@/types';
+import { NotFoundException } from '@nestjs/common';
+import { ExchangeRateService } from '@/models/exchange-rate/exchange-rate.service';
+import { CurrenciesService } from '@/models/currencies/currencies.service';
+import { HttpService } from '@nestjs/axios';
+import { Currency } from '@/models/currencies/entities/currency.entity';
+import { catchError, firstValueFrom } from 'rxjs';
 
 function getErrorMessage(error: unknown): string {
   if (error instanceof AxiosError) {
@@ -31,11 +30,14 @@ function getErrorMessage(error: unknown): string {
 export class CountryService implements OnModuleInit {
   private readonly logger = new Logger(CountryService.name);
   private readonly API_URL =
-    'https://restcountries.com/v3.1/all?status=true&fields=name,capital,flag,latlng,currencies';
+    'https://restcountries.com/v3.1/all?status=true&fields=name,capital,flag,area,latlng,maps,timezones,currencies,languages,cca3';
 
   constructor(
     @InjectRepository(Country)
     private readonly countryRepository: Repository<Country>,
+    private readonly exchangeRateService: ExchangeRateService,
+    private readonly currenciesService: CurrenciesService,
+    private readonly httpService: HttpService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -45,7 +47,7 @@ export class CountryService implements OnModuleInit {
 
       if (countryCount === 0) {
         this.logger.log('Database is empty. Fetching countries from API...');
-        await this.syncCountriesFromApi();
+        await this.performCountrySync();
       } else {
         this.logger.log(
           `Database already contains ${countryCount} countries. Skipping initial fetch.`,
@@ -60,30 +62,69 @@ export class CountryService implements OnModuleInit {
     }
   }
 
-  @Cron(CronExpression.EVERY_10_SECONDS)
+  @Cron(CronExpression.EVERY_DAY_AT_MIDNIGHT)
   async syncCountriesFromApi(): Promise<void> {
+    await this.performCountrySync();
+  }
+
+  private async performCountrySync(): Promise<void> {
+    const queryRunner =
+      this.countryRepository.manager.connection.createQueryRunner();
+    await queryRunner.connect();
+    await queryRunner.startTransaction();
+
     try {
-      this.logger.log('Starting daily country data sync...');
+      this.logger.log('Starting country data sync...');
       const countries = await this.fetchCountriesFromApi();
-      await this.saveCountriesToDatabase(countries);
+
+      const allCurrencies = countries.reduce(
+        (acc, country) => ({ ...acc, ...country.currencies }),
+        {},
+      );
+
+      const syncedCurrencies = await this.currenciesService.syncCurrencies(
+        allCurrencies,
+        queryRunner.manager,
+      );
+
+      await this.saveCountriesToDatabase(
+        countries,
+        syncedCurrencies,
+        queryRunner.manager,
+      );
+
+      const currencyCodes = syncedCurrencies.map((c) => c.code);
+      await this.exchangeRateService.updateExchangeRates(
+        currencyCodes,
+        queryRunner.manager,
+      );
+
+      await queryRunner.commitTransaction();
+
       this.logger.log(
-        `Successfully synced ${countries.length} countries to database`,
+        `Successfully synced ${countries.length} countries and ${syncedCurrencies.length} currencies`,
       );
     } catch (error) {
-      console.log('Sync failed');
+      await queryRunner.rollbackTransaction();
       const errorMessage = getErrorMessage(error);
       this.logger.error('Error syncing countries from API:', errorMessage);
+      throw error;
+    } finally {
+      await queryRunner.release();
     }
   }
 
   private async fetchCountriesFromApi(): Promise<CountryApiResponse[]> {
     try {
       this.logger.debug('Fetching countries from API...');
-      const response = await axios.get<CountryApiResponse[]>(this.API_URL, {
-        timeout: 10000,
-      });
-      this.logger.debug(`Received ${response.data.length} countries from API`);
-      return response.data;
+      const { data } = await firstValueFrom(
+        this.httpService.get<CountryApiResponse[]>(this.API_URL).pipe(
+          catchError((error: AxiosError) => {
+            throw error;
+          }),
+        ),
+      );
+      return data;
     } catch (error) {
       const errorMessage = getErrorMessage(error);
       this.logger.error('Failed to fetch countries from API:', errorMessage);
@@ -91,91 +132,112 @@ export class CountryService implements OnModuleInit {
     }
   }
 
-
   private async saveCountriesToDatabase(
     countries: CountryApiResponse[],
+    currencyEntities: Currency[],
+    manager?: EntityManager,
   ): Promise<void> {
+    const repo = manager
+      ? manager.getRepository(Country)
+      : this.countryRepository;
+
     for (const countryData of countries) {
       try {
-        let countryName: string;
-        if (typeof countryData.name === 'string') {
-          countryName = countryData.name;
-        } else if (
-          countryData.name &&
-          typeof countryData.name === 'object' &&
-          'common' in countryData.name
-        ) {
-          countryName = countryData.name.common;
-        } else {
-          this.logger.warn('Country has no valid name, skipping');
-          continue;
-        }
-
-        const existingCountry = await this.countryRepository.findOne({
+        const countryName = countryData.name.common;
+        const existingCountry = await repo.findOne({
           where: { name: countryName },
+          relations: ['currencies'],
         });
 
+        const countryCurrencies = currencyEntities.filter(
+          (c) => countryData.currencies && countryData.currencies[c.code],
+        );
+
         const countryEntity: Partial<Country> = {
+          id: countryData.cca3,
           name: countryName,
-          capital: countryData.capital?.[0] || undefined,
-          flag: countryData.flag || undefined,
-          latlng: countryData.latlng || undefined,
-          currencies: countryData.currencies || undefined,
-          rawData: countryData,
+          capital: countryData.capital,
+          flag: countryData.flag,
+          area: countryData.area,
+          maps: countryData.maps,
+          latlng: countryData.latlng,
+          languages: countryData.languages
+            ? Object.values(countryData.languages)
+            : [],
+          timezones: countryData.timezones,
         };
 
         if (existingCountry) {
-          await this.countryRepository.update(
-            existingCountry.id,
-            countryEntity,
-          );
+          await repo.update(existingCountry.id, countryEntity);
+          await repo
+            .createQueryBuilder()
+            .relation(Country, 'currencies')
+            .of(existingCountry.id)
+            .addAndRemove(countryCurrencies, existingCountry.currencies);
         } else {
-          await this.countryRepository.save(countryEntity);
+          const newCountry = repo.create(countryEntity);
+          newCountry.currencies = countryCurrencies;
+          await repo.save(newCountry);
         }
       } catch (error) {
-        let countryIdentifier = 'unknown';
-        if (typeof countryData.name === 'string') {
-          countryIdentifier = countryData.name;
-        } else if (
-          countryData.name &&
-          typeof countryData.name === 'object' &&
-          'common' in countryData.name
-        ) {
-          countryIdentifier = (countryData.name as { common: string }).common;
-        }
         const errorMessage = getErrorMessage(error);
         this.logger.warn(
-          `Failed to save country ${countryIdentifier}: ${errorMessage}`,
+          `Failed to save country ${countryData.name.common}: ${errorMessage}`,
         );
       }
     }
   }
 
-
-  async findAll(): Promise<Country[]> {
-    return this.countryRepository.find();
-  }
-
-
-  async findOne(id: string): Promise<Country | null> {
-    return this.countryRepository.findOne({
-      where: { id },
+  async findAll(): Promise<Partial<CountryBasic>[]> {
+    return this.countryRepository.find({
+      select: ['id', 'name', 'capital', 'flag', 'area', 'latlng'],
     });
   }
 
+  async findOne(id: string): Promise<CountryDetailed> {
+    const country = await this.countryRepository.findOne({
+      where: { id },
+      relations: ['currencies'],
+      select: [
+        'id',
+        'name',
+        'capital',
+        'flag',
+        'area',
+        'latlng',
+        'languages',
+        'timezones',
+      ],
+    });
 
-  async manualSync(): Promise<{ message: string; count: number }> {
-    try {
-      const countries = await this.fetchCountriesFromApi();
-      await this.saveCountriesToDatabase(countries);
-      return {
-        message: 'Countries synced successfully',
-        count: countries.length,
-      };
-    } catch (error) {
-      const errorMessage = getErrorMessage(error);
-      this.logger.error('Manual sync failed:', errorMessage);
-      throw error;
+    if (!country) {
+      throw new NotFoundException({
+        error: 'Country not found',
+        message: `Country with id "${id}" not found`,
+      });
     }
+
+    const enrichedCurrencies: Record<string, any> = {};
+
+    for (const currency of country.currencies) {
+      const rates = await this.exchangeRateService.getRatesByBaseCurrency(
+        currency.code,
+      );
+
+      enrichedCurrencies[currency.code] = {
+        name: currency.name,
+        symbol: currency.symbol,
+        exchangeRates: rates.map((rate) => ({
+          currencyCode: rate.currencyCode,
+          rate: parseFloat(rate.rate.toString()),
+          date: rate.date,
+        })),
+      };
+    }
+
+    return {
+      ...country,
+      currencies: enrichedCurrencies,
+    };
   }
 }
