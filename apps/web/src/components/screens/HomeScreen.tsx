@@ -2,9 +2,13 @@
 
 import { useState } from "react";
 import CoutriesListCommand from "@/components/coutries/CoutriesListCommand";
-import { Map } from "@/components/map/Map";
 import { allCountriesOptions } from "@/lib/getAllCountries";
 import { useSuspenseQuery } from "@tanstack/react-query";
+import dynamic from "next/dynamic";
+const Map = dynamic(
+  () => import("@/components/map/Map").then((mod) => mod.Map),
+  { ssr: false },
+);
 
 export default function HomeScreen() {
   const { data: countries } = useSuspenseQuery(allCountriesOptions);
